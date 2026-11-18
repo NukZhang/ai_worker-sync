@@ -1,0 +1,40 @@
+name: trigger-gitee-pull
+
+# This public repository holds no application code. It only nudges the private mirror on a schedule.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trigger-gitee-pull
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Nudge the private mirror
+        env:
+          DEPLOY_KEY: ${{ secrets.PRIVATE_REPO_DEPLOY_KEY }}
+          PRIVATE_REPO: ${{ secrets.PRIVATE_REPO }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          ssh-keyscan -t ed25519 github.com >> "$HOME/.ssh/known_hosts" 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/id_ed25519 -o IdentitiesOnly=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
+          git init --quiet .
+          git config user.name "AI-worker sync trigger"
+          git config user.email "aiworker@users.noreply.github.com"
+          git remote add origin "$PRIVATE_REPO"
+          git fetch --quiet --depth=1 origin main
+          base=$(git rev-parse FETCH_HEAD)
+          tree=$(git rev-parse "${base}^{tree}")
+          stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          commit=$(git commit-tree "$tree" -p "$base" -m "chore: trigger gitee pull $stamp")
+          git push --quiet --force origin "$commit:refs/heads/gitee-sync-trigger"
