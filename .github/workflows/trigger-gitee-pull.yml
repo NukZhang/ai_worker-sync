@@ -32,9 +32,17 @@ jobs:
           git config user.name "AI-worker sync trigger"
           git config user.email "aiworker@users.noreply.github.com"
           git remote add origin "$PRIVATE_REPO"
-          git fetch --quiet --depth=1 origin main
+          if ! git fetch --quiet --depth=1 origin main 2>"$RUNNER_TEMP/fetch.log"; then
+            echo "fetch from the private mirror failed" >&2
+            sed -E 's#https://github.com/[^ ]+#<private>#g' "$RUNNER_TEMP/fetch.log" | tail -10 >&2
+            exit 1
+          fi
           base=$(git rev-parse FETCH_HEAD)
           tree=$(git rev-parse "${base}^{tree}")
           stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           commit=$(git commit-tree "$tree" -p "$base" -m "chore: trigger gitee pull $stamp")
-          git push --quiet --force origin "$commit:refs/heads/gitee-sync-trigger"
+          if ! git push --quiet --force origin "$commit:refs/heads/gitee-sync-trigger" >"$RUNNER_TEMP/push.log" 2>&1; then
+            echo "trigger push failed" >&2
+            sed -E 's#https://github.com/[^ ]+#<private>#g' "$RUNNER_TEMP/push.log" | tail -10 >&2
+            exit 1
+          fi
